@@ -1,5 +1,6 @@
 use prefixmap::IriRef;
 use rudof_iri::IriS;
+use rudof_rdf::rdf_core::term::Object;
 use rudof_rdf::rdf_core::term::literal::ConcreteLiteral;
 use std::fmt::{Display, Formatter};
 
@@ -7,6 +8,7 @@ use std::fmt::{Display, Formatter};
 pub enum Value {
     Iri(IriRef),
     Literal(ConcreteLiteral),
+    Object(Object),
 }
 
 impl From<IriS> for Value {
@@ -26,6 +28,7 @@ impl Display for Value {
         match self {
             Value::Iri(iri) => write!(f, "value({iri})"),
             Value::Literal(lit) => write!(f, "literal({lit})"),
+            Value::Object(object) => write!(f, "{object}"),
         }
     }
 }

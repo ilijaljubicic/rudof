@@ -1254,7 +1254,12 @@ prefix : <http://example.org/>
         }
 
         let shapes = ":S sh:targetNode :a ; sh:hasValue <<( :a :p :b )>> .";
-        assert!(try_validate(&format!("{PREFIXES}{shapes}\n")).is_err());
+        let report = try_validate(&format!("{PREFIXES}{shapes}\n"))
+            .expect("a triple-term constant is parsed and evaluated without a panic");
+        assert!(
+            !report.conforms(),
+            "the IRI target is distinct from the required triple term"
+        );
     }
 
     #[test]

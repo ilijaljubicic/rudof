@@ -14,8 +14,8 @@ pub(crate) fn in_component<RDF: FocusRDF>(
         list_with_budget(budget).flat_map(|ls| {
             let values = ls
                 .iter()
-                .flat_map(|t| term_to_value::<RDF>(t, "parsing in list"))
-                .collect();
+                .map(|t| term_to_value::<RDF>(t, "parsing in list"))
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(ASTComponent::In(values))
         }),
     )

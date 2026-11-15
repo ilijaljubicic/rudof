@@ -58,7 +58,7 @@ impl ShaclToUnified {
                 if matches!(shape_ref, Object::BlankNode(_)) && node_shape.targets().is_empty() {
                     continue;
                 }
-                let unified_shape = self.convert_node_shape(node_shape.as_ref(), schema, &mut metrics);
+                let unified_shape = self.convert_node_shape(node_shape.as_ref(), schema, &mut metrics)?;
                 model.add_shape(unified_shape);
             }
         }
@@ -71,7 +71,7 @@ impl ShaclToUnified {
         node_shape: &ASTNodeShape,
         schema: &ASTSchema,
         metrics: &mut TranslationMetrics,
-    ) -> UnifiedShape {
+    ) -> Result<UnifiedShape> {
         let shape_id = node_shape.id().to_string();
         let mut properties = Vec::new();
 
@@ -87,7 +87,7 @@ impl ShaclToUnified {
                 if target_class.is_none() {
                     target_class = Self::target_class_from_type_constraint(prop_shape);
                 }
-                if let Some(unified_prop) = self.convert_property_shape(prop_shape, schema, metrics) {
+                if let Some(unified_prop) = self.convert_property_shape(prop_shape, schema, metrics)? {
                     properties.push(unified_prop);
                 }
             }
@@ -111,14 +111,14 @@ impl ShaclToUnified {
             })
             .unwrap_or((false, Vec::new()));
 
-        UnifiedShape {
+        Ok(UnifiedShape {
             id: shape_id,
             target_class,
             properties,
             closed,
             ignored_properties,
             labels: Vec::new(),
-        }
+        })
     }
 
     /// The class a shape expects on `rdf:type`, when it states one without
@@ -159,7 +159,7 @@ impl ShaclToUnified {
         prop_shape: &ASTPropertyShape,
         schema: &ASTSchema,
         metrics: &mut TranslationMetrics,
-    ) -> Option<UnifiedPropertyConstraint> {
+    ) -> Result<Option<UnifiedPropertyConstraint>> {
         let property_iri = prop_shape.path().to_string();
         let mut constraints = Vec::new();
 
@@ -167,7 +167,7 @@ impl ShaclToUnified {
 
         if let Some(qualified) = Self::qualified_value_shape(&property_iri, prop_shape.components(), schema) {
             metrics.represented_constraints_in_unified += 1;
-            return Some(qualified);
+            return Ok(Some(qualified));
         }
 
         // Extract cardinality from components
@@ -181,19 +181,19 @@ impl ShaclToUnified {
 
         // Process constraints from components
         for component in prop_shape.components() {
-            if self.convert_component(component, &mut constraints) {
+            if self.convert_component(component, &mut constraints)? {
                 metrics.represented_constraints_in_unified += 1;
             }
         }
 
-        Some(UnifiedPropertyConstraint {
+        Ok(Some(UnifiedPropertyConstraint {
             property_iri,
             constraints,
             min_cardinality,
             max_cardinality,
             counts_matching_values: false,
             all_values_match: true,
-        })
+        }))
     }
 
     /// A qualified value shape that names a node shape, as a count of the values
@@ -277,8 +277,8 @@ impl ShaclToUnified {
         (min_cardinality, max_cardinality)
     }
 
-    fn convert_component(&self, component: &ASTComponent, constraints: &mut Vec<UnifiedConstraint>) -> bool {
-        match component {
+    fn convert_component(&self, component: &ASTComponent, constraints: &mut Vec<UnifiedConstraint>) -> Result<bool> {
+        Ok(match component {
             ASTComponent::Datatype(datatype) => {
                 constraints.push(UnifiedConstraint::Datatype(datatype.to_string()));
                 true
@@ -339,13 +339,15 @@ impl ShaclToUnified {
                 true
             },
             ASTComponent::HasValue(value) => {
-                let unified_val = self.convert_value_to_unified_value(value);
+                let unified_val = self.convert_value_to_unified_value(value)?;
                 constraints.push(UnifiedConstraint::HasValue(unified_val));
                 true
             },
             ASTComponent::In(values) => {
-                let unified_vals: Vec<UnifiedValue> =
-                    values.iter().map(|v| self.convert_value_to_unified_value(v)).collect();
+                let unified_vals: Vec<UnifiedValue> = values
+                    .iter()
+                    .map(|v| self.convert_value_to_unified_value(v))
+                    .collect::<Result<_>>()?;
                 constraints.push(UnifiedConstraint::In(unified_vals));
                 true
             },
@@ -363,7 +365,7 @@ impl ShaclToUnified {
                 // or handle them based on specific needs
                 false
             },
-        }
+        })
     }
 
     fn convert_literal_to_value(&self, literal: &ConcreteLiteral) -> UnifiedValue {
@@ -371,13 +373,18 @@ impl ShaclToUnified {
         UnifiedValue::Literal(literal.lexical_form().to_string(), Some(literal.datatype().to_string()))
     }
 
-    fn convert_value_to_unified_value(&self, value: &Value) -> UnifiedValue {
-        match value {
+    fn convert_value_to_unified_value(&self, value: &Value) -> Result<UnifiedValue> {
+        Ok(match value {
             Value::Iri(iri) => UnifiedValue::Iri(iri.to_string()),
             Value::Literal(lit) => {
                 UnifiedValue::Literal(lit.lexical_form().to_string(), Some(lit.datatype().to_string()))
             },
-        }
+            Value::Object(object) => {
+                return Err(DataGeneratorError::Config(format!(
+                    "Data generation cannot represent the RDF constant {object}; SHACL validation supports it"
+                )));
+            },
+        })
     }
 }
 
@@ -409,4 +416,35 @@ fn merge_same_path(properties: Vec<UnifiedPropertyConstraint>) -> Vec<UnifiedPro
         }
     }
     merged
+}
+
+#[cfg(test)]
+mod rdf_constant_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unsupported_native_constants_fail_generation_explicitly() {
+        for value in ["_:required", "<<( ex:s ex:p ex:o )>>"] {
+            for predicate in ["hasValue", "in"] {
+                let value = if predicate == "in" {
+                    format!("({value})")
+                } else {
+                    value.to_string()
+                };
+                let source = format!(
+                    "@prefix ex: <urn:example:> . @prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+                     ex:S a sh:NodeShape ; sh:targetClass ex:Thing ;\n\
+                     sh:property [ sh:path ex:value ; sh:{predicate} {value} ] ."
+                );
+                let error = ShaclToUnified
+                    .convert_schema(source)
+                    .await
+                    .expect_err("generation must not silently change the RDF constant");
+                assert!(
+                    error.to_string().contains("cannot represent the RDF constant"),
+                    "{error}"
+                );
+            }
+        }
+    }
 }

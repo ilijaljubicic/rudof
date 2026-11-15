@@ -9,6 +9,13 @@ This ChangeLog follows the [Keep a ChangeLog guidelines](https://keepachangelog.
 ### Removed
 -->
 
+## [Unreleased]
+### Fixed
+- SHACL parsing and native validation preserve blank-node and RDF 1.2 triple-term constants in `sh:hasValue` and `sh:in`; enumeration conversion errors are propagated instead of silently dropping members.
+
+### Changed
+- `shacl::types::Value` has an `Object` variant for native RDF constants. Downstream exhaustive matches need to handle it. Data generation reports a configuration error for constants its intermediate representation cannot preserve.
+
 ## 0.3.39
 ### Added
 - `rudof_rdf`: `OxigraphEndpoint::update` sends a SPARQL Update to the endpoint's `update_url`, falling back to its query URL ([#942](https://github.com/rudof-project/rudof/issues/942)).
