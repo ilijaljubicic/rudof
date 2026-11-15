@@ -71,6 +71,7 @@ fn convert_value(value: Value) -> Result<Object, IRError> {
     let out = match value {
         Value::Iri(iri_ref) => Object::Iri(convert_iri_ref(iri_ref)?),
         Value::Literal(lit) => Object::literal(lit),
+        Value::Object(object) => object,
     };
 
     Ok(out)

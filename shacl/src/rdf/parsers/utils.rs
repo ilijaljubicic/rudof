@@ -7,7 +7,7 @@ use rudof_rdf::rdf_core::parser::rdf_node_parser::constructors::{
 };
 use rudof_rdf::rdf_core::parser::rdf_node_parser::{ParserExt, RDFNodeParse};
 use rudof_rdf::rdf_core::term::literal::ConcreteLiteral;
-use rudof_rdf::rdf_core::term::{Iri, Object, Term};
+use rudof_rdf::rdf_core::term::{Iri, Object};
 use rudof_rdf::rdf_core::{FocusRDF, RDFError, Rdf};
 use std::fmt::Display;
 use std::sync::Arc;
@@ -34,12 +34,7 @@ pub(crate) fn terms_as_nodes<RDF: Rdf>(terms: Vec<RDF::Term>) -> Result<Vec<Obje
 }
 
 pub(crate) fn term_to_value<RDF: Rdf>(term: &RDF::Term, msg: &str) -> Result<Value, RDFError> {
-    if term.is_blank_node() {
-        Err(RDFError::ExpectedIriOrBlankNodeError {
-            term: term.to_string(),
-            error: msg.to_string(),
-        })
-    } else if let Ok(iri) = RDF::term_as_iri(term) {
+    if let Ok(iri) = RDF::term_as_iri(term) {
         let iri: RDF::IRI = iri;
         let iri_string = iri.as_str();
         let iri_s = IriS::new_unchecked(iri_string);
@@ -51,9 +46,11 @@ pub(crate) fn term_to_value<RDF: Rdf>(term: &RDF::Term, msg: &str) -> Result<Val
         })?;
         Ok(Value::Literal(slit))
     } else {
-        Err(RDFError::DefaultError {
-            msg: format!("Unexpected term in {msg}: {term}"),
-        })
+        RDF::term_as_object(term)
+            .map(Value::Object)
+            .map_err(|error| RDFError::DefaultError {
+                msg: format!("Unexpected term in {msg}: {term}: {error}"),
+            })
     }
 }
 
