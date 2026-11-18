@@ -48,12 +48,12 @@ impl IriS {
 
     /// Create an [`IriS`] from a `&str` without checking for possible syntactic errors
     pub fn new_unchecked(str: &str) -> IriS {
-        let iri = NamedNode::new_unchecked(str);
+        let iri = NamedNode::new_unchecked(str.to_owned());
         IriS { iri }
     }
 
     pub fn new(str: &str) -> Result<IriS, IriSError> {
-        let iri = NamedNode::new(str).map_err(|e| IriSError::IriParseError {
+        let iri = NamedNode::new(str.to_owned()).map_err(|e| IriSError::IriParseError {
             str: str.to_string(),
             error: e.to_string(),
         })?;
@@ -87,7 +87,7 @@ impl IriS {
             format!("{current_str}/{str}")
         };
 
-        let iri = NamedNode::new(extend_str.as_str()).map_err(|e| IriSError::IriParseError {
+        let iri = NamedNode::new(extend_str.clone()).map_err(|e| IriSError::IriParseError {
             str: extend_str,
             error: e.to_string(),
         })?;
@@ -154,7 +154,7 @@ impl IriS {
 
     /// Create a `NamedNode` from an IRI
     pub fn namednode_from_iri(iri: Iri<String>) -> Result<NamedNode, IriSError> {
-        NamedNode::new(iri.as_str()).map_err(|e| IriSError::IriParseError {
+        NamedNode::new(iri.as_str().to_owned()).map_err(|e| IriSError::IriParseError {
             str: iri.as_str().to_string(),
             error: e.to_string(),
         })
@@ -311,7 +311,7 @@ impl From<NamedNode> for IriS {
 impl From<Url> for IriS {
     fn from(value: Url) -> Self {
         IriS {
-            iri: NamedNode::new_unchecked(value),
+            iri: NamedNode::new_unchecked(value.to_string()),
         }
     }
 }
@@ -335,7 +335,7 @@ impl TryFrom<&Path> for IriS {
             error: String::from("Cannot convert path to file URL"),
         })?;
 
-        let iri = NamedNode::new(url.as_str()).map_err(|e| IriSError::IriParseError {
+        let iri = NamedNode::new(url.as_str().to_owned()).map_err(|e| IriSError::IriParseError {
             str: url.as_str().to_string(),
             error: e.to_string(),
         })?;
@@ -348,7 +348,7 @@ impl FromStr for IriS {
     type Err = IriSError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let iri = NamedNode::new(s).map_err(|e| IriSError::IriParseError {
+        let iri = NamedNode::new(s.to_owned()).map_err(|e| IriSError::IriParseError {
             str: s.to_string(),
             error: e.to_string(),
         })?;
@@ -358,7 +358,7 @@ impl FromStr for IriS {
 
 impl From<IriS> for NamedNode {
     fn from(iri: IriS) -> Self {
-        NamedNode::new_unchecked(iri.as_str())
+        iri.iri
     }
 }
 

@@ -102,7 +102,9 @@ impl OxigraphInMemory {
     /// Returns an iterator over all triples as quads in the default graph.
     pub fn quads(&self) -> impl Iterator<Item = Quad> + '_ {
         let graph_name = GraphName::DefaultGraph;
-        self.graph.iter().map(move |t| triple_to_quad(t, graph_name.clone()))
+        self.graph
+            .iter()
+            .map(move |t| triple_to_quad(t.as_ref(), graph_name.clone()))
     }
 
     /// Returns `true` if the graph contains no triples.
@@ -404,7 +406,11 @@ impl OxigraphInMemory {
                     None => continue,
                 }
             }
-            graph.insert(triple.as_ref());
+            graph.insert(TripleRef::new(
+                triple.subject.as_ref(),
+                triple.predicate.as_ref(),
+                triple.object.as_ref(),
+            ));
         }
 
         let prefixes: HashMap<&str, &str> = n3_reader.prefixes().collect();
@@ -453,7 +459,11 @@ impl OxigraphInMemory {
                     Some(t) => t,
                     None => continue,
                 };
-            graph.insert(triple.as_ref());
+            graph.insert(TripleRef::new(
+                triple.subject.as_ref(),
+                triple.predicate.as_ref(),
+                triple.object.as_ref(),
+            ));
         }
 
         Ok(())
@@ -520,7 +530,11 @@ impl OxigraphInMemory {
                 Some(t) => t,
                 None => continue,
             };
-            graph.insert(triple.as_ref());
+            graph.insert(TripleRef::new(
+                triple.subject.as_ref(),
+                triple.predicate.as_ref(),
+                triple.object.as_ref(),
+            ));
         }
 
         Ok(())
@@ -553,7 +567,11 @@ impl OxigraphInMemory {
                 Some(t) => t,
                 None => continue,
             };
-            graph.insert(triple.as_ref());
+            graph.insert(TripleRef::new(
+                triple.subject.as_ref(),
+                triple.predicate.as_ref(),
+                triple.object.as_ref(),
+            ));
         }
 
         Ok(())
@@ -656,7 +674,7 @@ impl OxigraphInMemory {
     ///
     /// An Oxigraph named node representation of the IRI.
     fn cnv_iri(iri: IriS) -> OxNamedNode {
-        OxNamedNode::new_unchecked(iri.as_str())
+        iri.into()
     }
 
     /// Adds a triple using borrowed references.
@@ -911,7 +929,7 @@ impl NeighsRDF for OxigraphInMemory {
     ///
     /// An iterator that yields owned triples.
     fn triples(&self) -> Result<impl Iterator<Item = Self::Triple>, Self::Err> {
-        Ok(self.graph.iter().map(TripleRef::into_owned))
+        Ok(self.graph.iter())
     }
 
     /// Returns an iterator over triples matching a pattern.
@@ -959,7 +977,7 @@ impl NeighsRDF for OxigraphInMemory {
                 Box::new(
                     self.graph
                         .objects_for_subject_predicate(OxSubjectRef::from(s), NamedNodeRef::from(p))
-                        .map(move |o| OxTriple::new(s_owned.clone(), p_owned.clone(), o.into_owned())),
+                        .map(move |o| OxTriple::new(s_owned.clone(), p_owned.clone(), o)),
                 )
             },
             (Some(s), None, Some(o)) => {
@@ -967,35 +985,22 @@ impl NeighsRDF for OxigraphInMemory {
                 Box::new(
                     self.graph
                         .triples_for_subject(OxSubjectRef::from(s))
-                        .map(TripleRef::into_owned)
                         .filter(move |t| t.object == o_owned),
                 )
             },
-            (Some(s), None, None) => Box::new(
-                self.graph
-                    .triples_for_subject(OxSubjectRef::from(s))
-                    .map(TripleRef::into_owned),
-            ),
+            (Some(s), None, None) => Box::new(self.graph.triples_for_subject(OxSubjectRef::from(s))),
             (None, Some(p), Some(o)) => {
                 let p_owned = p.clone();
                 let o_owned = o.clone();
                 Box::new(
                     self.graph
                         .subjects_for_predicate_object(NamedNodeRef::from(p), TermRef::from(o))
-                        .map(move |s| OxTriple::new(s.into_owned(), p_owned.clone(), o_owned.clone())),
+                        .map(move |s| OxTriple::new(s, p_owned.clone(), o_owned.clone())),
                 )
             },
-            (None, Some(p), None) => Box::new(
-                self.graph
-                    .triples_for_predicate(NamedNodeRef::from(p))
-                    .map(TripleRef::into_owned),
-            ),
-            (None, None, Some(o)) => Box::new(
-                self.graph
-                    .triples_for_object(TermRef::from(o))
-                    .map(TripleRef::into_owned),
-            ),
-            (None, None, None) => Box::new(self.graph.iter().map(TripleRef::into_owned)),
+            (None, Some(p), None) => Box::new(self.graph.triples_for_predicate(NamedNodeRef::from(p))),
+            (None, None, Some(o)) => Box::new(self.graph.triples_for_object(TermRef::from(o))),
+            (None, None, None) => Box::new(self.graph.iter()),
         };
 
         Ok(result)
@@ -1173,7 +1178,8 @@ impl BuildRDF for OxigraphInMemory {
         let bn = u128::try_from(self.bnode_counter).map_err(|_| OxigraphInMemoryError::BlankNodeId {
             msg: format!("Blank node counter overflow: {}", self.bnode_counter),
         })?;
-        Ok(OxBlankNode::new_from_unique_id(bn))
+        // Oxrdf 0.4 stores the identifier directly; retain the former hexadecimal ID.
+        Ok(OxBlankNode::new_unchecked(format!("{bn:x}")))
     }
 
     /// Adds a triple to the graph.
@@ -1190,7 +1196,7 @@ impl BuildRDF for OxigraphInMemory {
         O: Into<Self::Term>,
     {
         let triple = OxTriple::new(subj.into(), pred.into(), obj.into());
-        self.graph_mut().insert(&triple);
+        self.graph_mut().insert(triple);
         Ok(())
     }
 
@@ -1226,7 +1232,7 @@ impl BuildRDF for OxigraphInMemory {
         T: Into<Self::Term>,
     {
         let triple = OxTriple::new(node.into(), rdf_type(), type_.into());
-        self.graph_mut().insert(&triple);
+        self.graph_mut().insert(triple);
         Ok(())
     }
 
@@ -1275,7 +1281,7 @@ impl BuildRDF for OxigraphInMemory {
             serializer = serializer.with_prefix(prefix, iri.as_str())?;
         }
 
-        let triples: Vec<OxTriple> = self.graph.iter().map(TripleRef::into_owned).collect();
+        let triples: Vec<OxTriple> = self.graph.iter().collect();
         let triples = apply_blank_node_mode(triples, mode);
 
         let mut writer = serializer.for_writer(write);
@@ -1354,11 +1360,11 @@ fn triple_to_quad(t: TripleRef, graph_name: GraphName) -> Quad {
 /// * `Err(error)` - Parsing failed in strict mode
 fn validate_triple_iris(triple: TripleRef) -> Result<(), String> {
     if let oxrdf::NamedOrBlankNodeRef::NamedNode(n) = triple.subject {
-        OxNamedNode::new(n.as_str()).map_err(|e| e.to_string())?;
+        oxrdf::NamedNodeRef::new(n.as_str()).map_err(|e| e.to_string())?;
     }
-    OxNamedNode::new(triple.predicate.as_str()).map_err(|e| e.to_string())?;
+    NamedNodeRef::new(triple.predicate.as_str()).map_err(|e| e.to_string())?;
     if let TermRef::NamedNode(n) = triple.object {
-        OxNamedNode::new(n.as_str()).map_err(|e| e.to_string())?;
+        oxrdf::NamedNodeRef::new(n.as_str()).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1517,7 +1523,7 @@ impl QueryRDF for OxigraphInMemory {
                         msg: format!("Error iterating CONSTRUCT results: {e}"),
                     })?;
                     writer
-                        .serialize_triple(triple.as_ref())
+                        .serialize_triple(&triple)
                         .map_err(|e| OxigraphInMemoryError::RunningQueryError {
                             query: query_str.to_string(),
                             msg: format!("Error serializing CONSTRUCT triple: {e}"),

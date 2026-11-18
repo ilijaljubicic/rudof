@@ -79,6 +79,23 @@ fn numeric_literal_strategy() -> impl Strategy<Value = NumericLiteral> {
 // Property Tests: Type Constraints
 // ============================================================================
 
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn tiny_floats_convert_to_native_literals() {
+    for value in [1.1119645e-38_f32, 4.5361494e-38_f32, f32::from_bits(1)] {
+        for value in [value, -value] {
+            let literal = oxrdf::Literal::from(NumericLiteral::float(value));
+            assert_eq!(literal.datatype(), &oxrdf::vocab::xsd::FLOAT);
+            assert_eq!(literal.value().parse::<f32>().unwrap().to_bits(), value.to_bits());
+        }
+    }
+    for value in [f64::from_bits(1), -f64::from_bits(1)] {
+        let literal = oxrdf::Literal::from(NumericLiteral::double(value));
+        assert_eq!(literal.datatype(), &oxrdf::vocab::xsd::DOUBLE);
+        assert_eq!(literal.value().parse::<f64>().unwrap().to_bits(), value.to_bits());
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 proptest! {
     /// PositiveInteger must reject 0 and accept all positive values

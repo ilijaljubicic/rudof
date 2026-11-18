@@ -674,7 +674,7 @@ pub(crate) mod properties {
             } else {
                 subject(o, bnode_prefix, perm).into()
             };
-            g.insert(&Triple::new(subject(s, bnode_prefix, perm), pred, object));
+            g.insert(Triple::new(subject(s, bnode_prefix, perm), pred, object));
         }
         g
     }
@@ -712,7 +712,7 @@ pub(crate) mod properties {
             let g1 = build(&raw, "a", &IDENTITY);
             prop_assume!(!g1.is_empty());
             let g2 = build(&raw, "b", &perm);
-            let victim = g2.iter().nth(idx.index(g2.len())).unwrap().into_owned();
+            let victim = g2.iter().nth(idx.index(g2.len())).unwrap();
             let mut smaller = g2.clone();
             smaller.remove(&victim);
             prop_assert!(crate::rdf_impl::is_subgraph(&smaller, &g1));
@@ -775,7 +775,7 @@ pub(crate) mod properties {
             // Blank node `aN` becomes IRI `nN` (a node of the vocabulary) when `to_iri[N]`
             let mut instance = Graph::new();
             for t in g.iter() {
-                instance.insert(&instantiate(t, &to_iri));
+                instance.insert(instantiate(t.as_ref(), &to_iri));
             }
             prop_assert!(crate::rdf_impl::is_subgraph_with(&g, &instance, Entailment));
         }

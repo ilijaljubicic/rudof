@@ -86,7 +86,7 @@ impl Display for IriOrBlankNode {
 impl From<IriOrBlankNode> for oxrdf::NamedOrBlankNode {
     fn from(value: IriOrBlankNode) -> Self {
         match value {
-            IriOrBlankNode::Iri(iri) => oxrdf::NamedNode::new_unchecked(iri.as_str()).into(),
+            IriOrBlankNode::Iri(iri) => oxrdf::NamedNode::from(iri).into(),
             IriOrBlankNode::BlankNode(bnode) => oxrdf::BlankNode::new_unchecked(bnode).into(),
         }
     }
@@ -100,7 +100,7 @@ impl From<oxrdf::NamedOrBlankNode> for IriOrBlankNode {
     fn from(value: oxrdf::NamedOrBlankNode) -> Self {
         match value {
             oxrdf::NamedOrBlankNode::NamedNode(iri) => IriOrBlankNode::Iri(iri.into()),
-            oxrdf::NamedOrBlankNode::BlankNode(bnode) => IriOrBlankNode::BlankNode(bnode.into_string()),
+            oxrdf::NamedOrBlankNode::BlankNode(bnode) => IriOrBlankNode::BlankNode(bnode.into_string().to_string()),
         }
     }
 }
@@ -112,7 +112,7 @@ impl From<oxrdf::NamedOrBlankNode> for IriOrBlankNode {
 impl From<IriOrBlankNode> for oxrdf::Term {
     fn from(value: IriOrBlankNode) -> Self {
         match value {
-            IriOrBlankNode::Iri(iri) => oxrdf::Term::NamedNode(oxrdf::NamedNode::new_unchecked(iri.as_str())),
+            IriOrBlankNode::Iri(iri) => oxrdf::Term::NamedNode(oxrdf::NamedNode::from(iri)),
             IriOrBlankNode::BlankNode(bnode) => oxrdf::Term::BlankNode(oxrdf::BlankNode::new_unchecked(bnode)),
         }
     }
@@ -133,7 +133,7 @@ impl TryFrom<oxrdf::Term> for IriOrBlankNode {
     fn try_from(value: oxrdf::Term) -> Result<Self, Self::Error> {
         match value {
             oxrdf::Term::NamedNode(iri) => Ok(IriOrBlankNode::Iri(iri.into())),
-            oxrdf::Term::BlankNode(bnode) => Ok(IriOrBlankNode::BlankNode(bnode.into_string())),
+            oxrdf::Term::BlankNode(bnode) => Ok(IriOrBlankNode::BlankNode(bnode.into_string().to_string())),
             oxrdf::Term::Literal(lit) => Err(RDFError::ExpectedIriOrBlankNodeFoundLiteral {
                 literal: lit.to_string(),
             }),

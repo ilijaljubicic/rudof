@@ -18,7 +18,7 @@
 //!   [simply entails](https://www.w3.org/TR/rdf12-semantics/#simpleentailment) `G1`.
 
 use oxrdf::dataset::CanonicalizationAlgorithm;
-use oxrdf::{BlankNodeRef, Graph, NamedOrBlankNodeRef, TermRef, TripleRef};
+use oxrdf::{BlankNode, BlankNodeRef, Graph, NamedOrBlankNodeRef, Term, TermRef, Triple, TripleRef};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
@@ -125,19 +125,15 @@ pub fn is_subgraph_with(first: &Graph, second: &Graph, mode: SubgraphMode) -> bo
 
 /// A mapping of the blank nodes of `first` that maps every triple of `first`
 /// to a triple of `second`, according to `mode`, if there is one.
-pub(super) fn embedding<'a, 'b>(
-    first: &'a Graph,
-    second: &'b Graph,
-    mode: SubgraphMode,
-) -> Option<HashMap<BlankNodeRef<'a>, TermRef<'b>>> {
+pub(super) fn embedding(first: &Graph, second: &Graph, mode: SubgraphMode) -> Option<HashMap<BlankNode, Term>> {
     // Only an injective mapping keeps distinct triples distinct
     if mode == SubgraphMode::Injective && first.len() > second.len() {
         return None;
     }
     let mut pending = Vec::new();
     for t in first.iter() {
-        if triple_is_ground(t) {
-            if !second.contains(t) {
+        if triple_is_ground(t.as_ref()) {
+            if !second.contains(&t) {
                 return None;
             }
         } else {
@@ -151,9 +147,9 @@ pub(super) fn embedding<'a, 'b>(
     // Candidate images for each pending triple: same shape, same ground terms
     let mut candidates = Vec::with_capacity(pending.len());
     for t in &pending {
-        let cs: Vec<TripleRef<'_>> = candidate_triples(*t, second)
+        let cs: Vec<Triple> = candidate_triples(t.as_ref(), second)
             .into_iter()
-            .filter(|c| unify_triple(*t, *c, &mut Mapping::new(mode)))
+            .filter(|c| unify_triple(t.as_ref(), c.as_ref(), &mut Mapping::new(mode)))
             .collect();
         if cs.is_empty() {
             return None;
@@ -162,7 +158,7 @@ pub(super) fn embedding<'a, 'b>(
     }
 
     let order = search_order(&pending, &candidates);
-    let triples: Vec<_> = order.iter().map(|&i| pending[i]).collect();
+    let triples: Vec<_> = order.iter().map(|&i| pending[i].clone()).collect();
     let candidates: Vec<_> = order.iter().map(|&i| std::mem::take(&mut candidates[i])).collect();
     let mut mapping = Mapping::new(mode);
     // On success, the search leaves the bindings that map every triple
@@ -231,8 +227,8 @@ pub fn compare_graphs(first: &Graph, second: &Graph) -> GraphRelation {
 
 /// The triples of `second` that `t` could be mapped to: same predicate, and
 /// same subject or object when it has no blank node, through the most selective index.
-pub(super) fn candidate_triples<'b>(t: TripleRef<'_>, second: &'b Graph) -> Vec<TripleRef<'b>> {
-    let same_predicate = |c: &TripleRef<'_>| c.predicate == t.predicate;
+pub(super) fn candidate_triples(t: TripleRef<'_>, second: &Graph) -> Vec<Triple> {
+    let same_predicate = |c: &Triple| c.predicate.as_ref() == t.predicate;
     if let NamedOrBlankNodeRef::NamedNode(_) = t.subject {
         second.triples_for_subject(t.subject).filter(same_predicate).collect()
     } else if term_is_ground(t.object) {
@@ -243,7 +239,7 @@ pub(super) fn candidate_triples<'b>(t: TripleRef<'_>, second: &'b Graph) -> Vec<
 }
 
 fn is_ground(graph: &Graph) -> bool {
-    graph.iter().all(triple_is_ground)
+    graph.iter().all(|t| triple_is_ground(t.as_ref()))
 }
 
 pub(super) fn triple_is_ground(t: TripleRef<'_>) -> bool {
@@ -260,15 +256,14 @@ fn term_is_ground(t: TermRef<'_>) -> bool {
 
 /// A partial mapping from the blank nodes of the first graph to terms of the
 /// second, constrained by a [`SubgraphMode`], with an undo trail for backtracking.
-pub(super) struct Mapping<'a, 'b> {
+pub(super) struct Mapping {
     mode: SubgraphMode,
-    pub(super) forward: HashMap<BlankNodeRef<'a>, TermRef<'b>>,
-    /// Images already taken, to keep the mapping injective (injective mode only)
-    taken: HashSet<TermRef<'b>>,
-    pub(super) trail: Vec<BlankNodeRef<'a>>,
+    pub(super) forward: HashMap<BlankNode, Term>,
+    taken: HashSet<Term>,
+    pub(super) trail: Vec<BlankNode>,
 }
 
-impl<'a, 'b> Mapping<'a, 'b> {
+impl Mapping {
     pub(super) fn new(mode: SubgraphMode) -> Self {
         Self {
             mode,
@@ -277,22 +272,22 @@ impl<'a, 'b> Mapping<'a, 'b> {
             trail: Vec::new(),
         }
     }
-
-    pub(super) fn bind(&mut self, from: BlankNodeRef<'a>, to: TermRef<'b>) -> bool {
+    pub(super) fn bind(&mut self, from: BlankNodeRef<'_>, to: TermRef<'_>) -> bool {
         if self.mode != SubgraphMode::Entailment && !matches!(to, TermRef::BlankNode(_)) {
             return false;
         }
+        let from = from.into_owned();
         if let Some(current) = self.forward.get(&from) {
-            return *current == to;
+            return current.as_ref() == to;
         }
-        if self.mode == SubgraphMode::Injective && !self.taken.insert(to) {
+        let to = to.into_owned();
+        if self.mode == SubgraphMode::Injective && !self.taken.insert(to.clone()) {
             return false;
         }
-        self.forward.insert(from, to);
+        self.forward.insert(from.clone(), to);
         self.trail.push(from);
         true
     }
-
     pub(super) fn undo_to(&mut self, len: usize) {
         while self.trail.len() > len {
             let from = self.trail.pop().unwrap();
@@ -304,7 +299,7 @@ impl<'a, 'b> Mapping<'a, 'b> {
 
 /// Tries to extend `mapping` so that it maps `t1` to `t2`. On failure the
 /// mapping may hold partial bindings: callers undo them.
-pub(super) fn unify_triple<'a, 'b>(t1: TripleRef<'a>, t2: TripleRef<'b>, mapping: &mut Mapping<'a, 'b>) -> bool {
+pub(super) fn unify_triple(t1: TripleRef<'_>, t2: TripleRef<'_>, mapping: &mut Mapping) -> bool {
     t1.predicate == t2.predicate
         && match t1.subject {
             NamedOrBlankNodeRef::BlankNode(b1) => mapping.bind(b1, t2.subject.into()),
@@ -313,7 +308,7 @@ pub(super) fn unify_triple<'a, 'b>(t1: TripleRef<'a>, t2: TripleRef<'b>, mapping
         && unify_term(t1.object, t2.object, mapping)
 }
 
-fn unify_term<'a, 'b>(o1: TermRef<'a>, o2: TermRef<'b>, mapping: &mut Mapping<'a, 'b>) -> bool {
+fn unify_term(o1: TermRef<'_>, o2: TermRef<'_>, mapping: &mut Mapping) -> bool {
     match (o1, o2) {
         (TermRef::BlankNode(b1), o2) => mapping.bind(b1, o2),
         (TermRef::Triple(t1), TermRef::Triple(t2)) => unify_triple(t1.as_ref(), t2.as_ref(), mapping),
@@ -321,18 +316,13 @@ fn unify_term<'a, 'b>(o1: TermRef<'a>, o2: TermRef<'b>, mapping: &mut Mapping<'a
     }
 }
 
-fn search<'a, 'b>(
-    triples: &[TripleRef<'a>],
-    candidates: &[Vec<TripleRef<'b>>],
-    i: usize,
-    mapping: &mut Mapping<'a, 'b>,
-) -> bool {
+fn search(triples: &[Triple], candidates: &[Vec<Triple>], i: usize, mapping: &mut Mapping) -> bool {
     if i == triples.len() {
         return true;
     }
     let mark = mapping.trail.len();
     for c in &candidates[i] {
-        if unify_triple(triples[i], *c, mapping) && search(triples, candidates, i + 1, mapping) {
+        if unify_triple(triples[i].as_ref(), c.as_ref(), mapping) && search(triples, candidates, i + 1, mapping) {
             return true;
         }
         mapping.undo_to(mark);
@@ -354,12 +344,12 @@ pub(super) fn blank_nodes<'a>(t: TripleRef<'a>, acc: &mut Vec<BlankNodeRef<'a>>)
 /// Orders the triples so that each one shares as many blank nodes as
 /// possible with the previous ones (so bindings are checked early), breaking
 /// ties by the number of candidates.
-fn search_order(triples: &[TripleRef<'_>], candidates: &[Vec<TripleRef<'_>>]) -> Vec<usize> {
+fn search_order(triples: &[Triple], candidates: &[Vec<Triple>]) -> Vec<usize> {
     let bnodes: Vec<Vec<BlankNodeRef<'_>>> = triples
         .iter()
         .map(|t| {
             let mut acc = Vec::new();
-            blank_nodes(*t, &mut acc);
+            blank_nodes(t.as_ref(), &mut acc);
             acc
         })
         .collect();

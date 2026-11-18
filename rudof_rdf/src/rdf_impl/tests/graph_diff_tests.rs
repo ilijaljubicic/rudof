@@ -82,7 +82,7 @@ impl Case<'_> {
 }
 
 fn bnode(label: &str) -> BlankNode {
-    BlankNode::new_unchecked(label)
+    BlankNode::new_unchecked(label.to_owned())
 }
 
 fn iri(local: &str) -> Term {
@@ -467,7 +467,7 @@ mod properties {
     }
 
     fn owned(g: &Graph) -> Vec<Triple> {
-        g.iter().map(|t| t.into_owned()).collect()
+        g.iter().collect()
     }
 
     /// Checks that `m`, from `source` into `target`, gives the lists: the triples of
@@ -593,7 +593,7 @@ mod properties {
             }
             let mut acc = HashSet::new();
             for t in g.iter() {
-                collect(&t.into_owned(), &mut acc);
+                collect(&t, &mut acc);
             }
             acc.into_iter().collect()
         }
@@ -704,7 +704,7 @@ mod properties {
                 NamedNode::new_unchecked(format!("{EX}added")),
                 NamedNode::new_unchecked(format!("{EX}n{o}")),
             );
-            g2.insert(&extra);
+            g2.insert(extra.clone());
             let d = crate::rdf_impl::diff_graphs(&g1, &g2, Injective, &HEURISTIC);
             prop_assert_eq!(d.relation, Subgraph);
             prop_assert!(d.only_in_first.is_empty());

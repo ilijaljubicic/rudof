@@ -6,6 +6,11 @@ use oxrdf::{BaseDirection, BlankNode, Literal, NamedNode, Term, Triple, vocab::x
 use prefixmap::PrefixMap;
 use rudof_iri::IriS;
 
+#[track_caller]
+fn assert_term_eq(actual: Term, expected: Term) {
+    assert_eq!(actual, expected);
+}
+
 fn prefixmap() -> PrefixMap {
     let mut pm = PrefixMap::new();
     pm.add_prefix("ex", IriS::new_unchecked("http://example.org/"));
@@ -26,7 +31,7 @@ fn error(text: &str) -> String {
 }
 
 fn iri(iri: &str) -> Term {
-    NamedNode::new_unchecked(iri).into()
+    NamedNode::new_unchecked(iri.to_owned()).into()
 }
 
 fn alice() -> Term {
@@ -35,45 +40,45 @@ fn alice() -> Term {
 
 #[test]
 fn test_an_iri_is_written_bracketed_or_prefixed() {
-    assert_eq!(term("<http://example.org/alice>"), alice());
-    assert_eq!(term("ex:alice"), alice());
-    assert_eq!(term(":alice"), alice());
-    assert_eq!(term("  ex:alice  "), alice());
+    assert_term_eq(term("<http://example.org/alice>"), alice());
+    assert_term_eq(term("ex:alice"), alice());
+    assert_term_eq(term(":alice"), alice());
+    assert_term_eq(term("  ex:alice  "), alice());
 }
 
 #[test]
 fn test_a_blank_node_keeps_its_label() {
-    assert_eq!(term("_:b1"), BlankNode::new_unchecked("b1").into());
+    assert_term_eq(term("_:b1"), BlankNode::new_unchecked("b1").into());
 }
 
 #[test]
 fn test_a_literal_keeps_its_language_and_direction() {
-    assert_eq!(term(r#""Alice""#), Literal::new_simple_literal("Alice").into());
-    assert_eq!(
+    assert_term_eq(term(r#""Alice""#), Literal::new_simple_literal("Alice").into());
+    assert_term_eq(
         term(r#""Alice"@en"#),
-        Literal::new_language_tagged_literal("Alice", "en").unwrap().into()
+        Literal::new_language_tagged_literal("Alice", "en").unwrap().into(),
     );
-    assert_eq!(
+    assert_term_eq(
         term(r#""Shalom"@he--rtl"#),
         Literal::new_directional_language_tagged_literal("Shalom", "he", BaseDirection::Rtl)
             .unwrap()
-            .into()
+            .into(),
     );
 }
 
 #[test]
 fn test_a_datatype_is_resolved_and_the_lexical_form_kept() {
-    assert_eq!(
+    assert_term_eq(
         term(r#""23"^^xsd:integer"#),
-        Literal::new_typed_literal("23", xsd::INTEGER).into()
+        Literal::new_typed_literal("23", xsd::INTEGER).into(),
     );
-    assert_eq!(term("23"), Literal::new_typed_literal("23", xsd::INTEGER).into());
-    assert_eq!(term("true"), Literal::new_typed_literal("true", xsd::BOOLEAN).into());
+    assert_term_eq(term("23"), Literal::new_typed_literal("23", xsd::INTEGER).into());
+    assert_term_eq(term("true"), Literal::new_typed_literal("true", xsd::BOOLEAN).into());
 
     // The lexical form reaches the graph as it was written, not canonicalized.
-    assert_eq!(
+    assert_term_eq(
         term(r#""2024-01-01T00:00:00.000Z"^^xsd:dateTime"#),
-        Literal::new_typed_literal("2024-01-01T00:00:00.000Z", xsd::DATE_TIME).into()
+        Literal::new_typed_literal("2024-01-01T00:00:00.000Z", xsd::DATE_TIME).into(),
     );
 }
 
@@ -84,38 +89,38 @@ fn test_a_triple_term_is_a_term() {
         NamedNode::new_unchecked("http://example.org/name"),
         Literal::new_simple_literal("Alice"),
     );
-    assert_eq!(term(r#"<<( ex:alice ex:name "Alice" )>>"#), inner.clone().into());
-    assert_eq!(term(r#"<<(ex:alice ex:name "Alice")>>"#), inner.clone().into());
+    assert_term_eq(term(r#"<<( ex:alice ex:name "Alice" )>>"#), inner.clone().into());
+    assert_term_eq(term(r#"<<(ex:alice ex:name "Alice")>>"#), inner.clone().into());
 
     // `a` is the predicate rdf:type here too.
-    assert_eq!(
+    assert_term_eq(
         term("<<( ex:alice a ex:Person )>>"),
         Triple::new(
             NamedNode::new_unchecked("http://example.org/alice"),
             NamedNode::new_unchecked("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"),
             NamedNode::new_unchecked("http://example.org/Person"),
         )
-        .into()
+        .into(),
     );
 
     // A blank node is a subject of one, and another triple term is an object.
-    assert_eq!(
+    assert_term_eq(
         term(r#"<<( _:b1 ex:name "Alice" )>>"#),
         Triple::new(
             BlankNode::new_unchecked("b1"),
             NamedNode::new_unchecked("http://example.org/name"),
             Literal::new_simple_literal("Alice"),
         )
-        .into()
+        .into(),
     );
-    assert_eq!(
+    assert_term_eq(
         term(r#"<<( ex:bob ex:believes <<( ex:alice ex:name "Alice" )>> )>>"#),
         Triple::new(
             NamedNode::new_unchecked("http://example.org/bob"),
             NamedNode::new_unchecked("http://example.org/believes"),
             Term::from(inner),
         )
-        .into()
+        .into(),
     );
 }
 
@@ -123,15 +128,15 @@ fn test_a_triple_term_is_a_term() {
 fn test_a_relative_iri_is_resolved_against_the_base() {
     let base = IriS::new_unchecked("http://example.org/");
 
-    assert_eq!(parse_term("<alice>", Some(&base), &prefixmap()).unwrap(), alice());
-    assert_eq!(
+    assert_term_eq(parse_term("<alice>", Some(&base), &prefixmap()).unwrap(), alice());
+    assert_term_eq(
         parse_term(r#"<<( <alice> <name> "Alice" )>>"#, Some(&base), &prefixmap()).unwrap(),
         Triple::new(
             NamedNode::new_unchecked("http://example.org/alice"),
             NamedNode::new_unchecked("http://example.org/name"),
             Literal::new_simple_literal("Alice"),
         )
-        .into()
+        .into(),
     );
 }
 
@@ -150,7 +155,7 @@ fn test_text_naming_more_than_one_term_is_refused() {
     assert!(error("( ex:a ex:b )").contains("does not name a single term"));
 
     // The empty collection is the single IRI rdf:nil.
-    assert_eq!(term("()"), iri("http://www.w3.org/1999/02/22-rdf-syntax-ns#nil"));
+    assert_term_eq(term("()"), iri("http://www.w3.org/1999/02/22-rdf-syntax-ns#nil"));
 }
 
 #[test]

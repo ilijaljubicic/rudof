@@ -162,15 +162,12 @@ pub enum OxigraphInMemoryError {
     },
 
     /// Error parsing an IRI (raised by the oxrdf/oxttl dependency chain,
-    /// which currently pulls in an older `oxiri` version than the rest of the workspace).
+    /// which uses the same `oxiri` version as the rest of the workspace).
     ///
     /// # Fields
     /// - `err`: The underlying IRI parsing error
     #[error(transparent)]
-    OxrdfIriParseError {
-        #[from]
-        err: OxrdfIriParseError,
-    },
+    OxrdfIriParseError { err: OxrdfIriParseError },
 
     /// Error related to IRI string operations.
     ///

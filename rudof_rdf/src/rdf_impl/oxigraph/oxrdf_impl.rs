@@ -165,7 +165,7 @@ impl BlankNode for OxBlankNode {
     /// # Parameters
     /// - `id`: The blank node identifier (converted to `String`)
     fn new(id: impl Into<String>) -> Self {
-        OxBlankNode::new_unchecked(id)
+        OxBlankNode::new_unchecked(id.into())
     }
 
     /// Returns the identifier of this blank node.

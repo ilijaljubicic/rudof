@@ -634,8 +634,9 @@ mod edge_case_tests {
 
     #[test]
     fn test_converted_numbers_match_as_terms_and_compare_as_values() {
-        let long =
-            |s: &str| ConcreteLiteral::try_from(oxrdf::Literal::new_typed_literal(s, oxrdf::vocab::xsd::LONG)).unwrap();
+        let long = |s: &str| {
+            ConcreteLiteral::try_from(oxrdf::Literal::new_typed_literal(s.to_owned(), oxrdf::vocab::xsd::LONG)).unwrap()
+        };
         let integer = ConcreteLiteral::try_from(oxrdf::Literal::from(5)).unwrap();
         let xsd_long = IriRef::iri(IriS::new_unchecked("http://www.w3.org/2001/XMLSchema#long"));
 

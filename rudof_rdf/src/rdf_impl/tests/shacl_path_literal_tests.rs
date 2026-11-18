@@ -35,7 +35,7 @@ fn node(s: &str) -> OxTerm {
 }
 
 fn lit(s: &str) -> OxTerm {
-    OxLiteral::new_simple_literal(s).into()
+    OxLiteral::new_simple_literal(s.to_owned()).into()
 }
 
 fn p() -> SHACLPath {

@@ -69,7 +69,7 @@ mod tests {
         Triple::new(
             NamedNode::new_unchecked("http://example.org/alice"),
             NamedNode::new_unchecked("http://example.org/name"),
-            Literal::new_simple_literal(object),
+            Literal::new_simple_literal(object.to_owned()),
         )
     }
 

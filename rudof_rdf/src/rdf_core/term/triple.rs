@@ -385,7 +385,7 @@ impl From<ConcreteLiteral> for Object {
 impl From<Object> for oxrdf::Term {
     fn from(value: Object) -> Self {
         match value {
-            Object::Iri(iri_s) => oxrdf::NamedNode::new_unchecked(iri_s.as_str()).into(),
+            Object::Iri(iri_s) => oxrdf::NamedNode::from(iri_s).into(),
             Object::BlankNode(bnode) => oxrdf::BlankNode::new_unchecked(bnode).into(),
             Object::Literal(literal) => oxrdf::Term::Literal(literal.into()),
             Object::Triple {
@@ -394,7 +394,7 @@ impl From<Object> for oxrdf::Term {
                 object,
             } => {
                 let subject: oxrdf::NamedOrBlankNode = (*subject).into();
-                let predicate = oxrdf::NamedNode::new_unchecked(predicate.as_str());
+                let predicate = oxrdf::NamedNode::from(predicate);
                 let object: oxrdf::Term = (*object).into();
                 oxrdf::Triple::new(subject, predicate, object).into()
             },
@@ -414,7 +414,7 @@ impl TryFrom<oxrdf::Term> for Object {
     fn try_from(value: oxrdf::Term) -> Result<Self, Self::Error> {
         match value {
             oxrdf::Term::NamedNode(named_node) => Ok(Object::iri(named_node.into())),
-            oxrdf::Term::BlankNode(blank_node) => Ok(Object::bnode(blank_node.into_string())),
+            oxrdf::Term::BlankNode(blank_node) => Ok(Object::bnode(blank_node.into_string().to_string())),
             oxrdf::Term::Literal(literal) => {
                 let lit: ConcreteLiteral = literal.try_into()?;
                 Ok(Object::literal(lit))
@@ -446,7 +446,7 @@ impl TryFrom<Object> for oxrdf::NamedOrBlankNode {
 
     fn try_from(value: Object) -> Result<Self, Self::Error> {
         match value {
-            Object::Iri(iri_s) => Ok(oxrdf::NamedNode::new_unchecked(iri_s.as_str()).into()),
+            Object::Iri(iri_s) => Ok(oxrdf::NamedNode::from(iri_s).into()),
             Object::BlankNode(bnode) => Ok(oxrdf::BlankNode::new_unchecked(bnode).into()),
             Object::Literal(lit) => Err(RDFError::ExpectedIriOrBlankNodeFoundLiteral {
                 literal: lit.to_string(),

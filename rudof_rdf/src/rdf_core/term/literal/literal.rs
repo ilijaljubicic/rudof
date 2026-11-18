@@ -1124,14 +1124,14 @@ impl TryFrom<oxrdf::Literal> for ConcreteLiteral {
 
             // A base direction only comes with a language tag, as the term it is part of
             // is a directional language-tagged string.
-            (s, None, Some(lang_tag), direction) => Lang::new(lang_tag.clone())
+            (s, None, Some(lang_tag), direction) => Lang::new(lang_tag.to_string())
                 .map(|lang| match direction {
                     Some(direction) => Self::dir_lang_str(&s, lang, direction.into()),
                     None => Self::lang_str(&s, lang),
                 })
                 .map_err(|e| RDFError::LanguageTagError {
                     literal: literal_str,
-                    language: lang_tag,
+                    language: lang_tag.to_string(),
                     error: e.to_string(),
                 }),
 
@@ -1142,7 +1142,7 @@ impl TryFrom<oxrdf::Literal> for ConcreteLiteral {
                 // Invalid lexical forms still produce WrongDatatypeLiteral.
                 match check_literal_datatype(&s, &datatype)? {
                     ConcreteLiteral::NumericLiteral(_) => Ok(ConcreteLiteral::DatatypeLiteral {
-                        lexical_form: s,
+                        lexical_form: s.to_string(),
                         datatype,
                     }),
                     checked => Ok(checked),

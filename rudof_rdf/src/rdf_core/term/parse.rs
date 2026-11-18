@@ -1,4 +1,4 @@
-use oxrdf::{NamedNode as OxNamedNode, Term as OxTerm};
+use oxrdf::Term as OxTerm;
 use oxttl::TurtleParser;
 use prefixmap::PrefixMap;
 use rudof_iri::IriS;
@@ -69,16 +69,16 @@ pub fn parse_term(term: &str, base: Option<&IriS>, prefixmap: &PrefixMap) -> Res
 fn validate_term_iris(term: &OxTerm) -> Result<(), String> {
     match term {
         OxTerm::NamedNode(iri) => {
-            OxNamedNode::new(iri.as_str()).map_err(|e| e.to_string())?;
+            oxrdf::NamedNodeRef::new(iri.as_str()).map_err(|e| e.to_string())?;
         },
         OxTerm::Literal(literal) => {
-            OxNamedNode::new(literal.datatype().as_str()).map_err(|e| e.to_string())?;
+            oxrdf::NamedNodeRef::new(literal.datatype().as_str()).map_err(|e| e.to_string())?;
         },
         OxTerm::Triple(triple) => {
             if let oxrdf::NamedOrBlankNode::NamedNode(iri) = &triple.subject {
-                OxNamedNode::new(iri.as_str()).map_err(|e| e.to_string())?;
+                oxrdf::NamedNodeRef::new(iri.as_str()).map_err(|e| e.to_string())?;
             }
-            OxNamedNode::new(triple.predicate.as_str()).map_err(|e| e.to_string())?;
+            oxrdf::NamedNodeRef::new(triple.predicate.as_str()).map_err(|e| e.to_string())?;
             validate_term_iris(&triple.object)?;
         },
         OxTerm::BlankNode(_) => {},

@@ -151,7 +151,11 @@ mod tests {
     }
 
     fn triple(subject: &str, predicate: &str, object: &str) -> Triple {
-        Triple::new(iri(subject), iri(predicate), OxLiteral::new_simple_literal(object))
+        Triple::new(
+            iri(subject),
+            iri(predicate),
+            OxLiteral::new_simple_literal(object.to_owned()),
+        )
     }
 
     fn graph_sink() -> GraphSink {

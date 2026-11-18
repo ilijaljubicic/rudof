@@ -173,13 +173,13 @@ pub fn diff_graphs(first: &Graph, second: &Graph, mode: SubgraphMode, options: &
     }
 }
 
-type BlankNodeMap<'a, 'b> = HashMap<BlankNodeRef<'a>, TermRef<'b>>;
+type BlankNodeMap = HashMap<BlankNode, Term>;
 
 /// The inverse of a one-to-one mapping of blank nodes to blank nodes.
-fn invert<'a, 'b>(m: &BlankNodeMap<'a, 'b>) -> BlankNodeMap<'b, 'a> {
+fn invert(m: &BlankNodeMap) -> BlankNodeMap {
     m.iter()
         .filter_map(|(from, to)| match to {
-            TermRef::BlankNode(to) => Some((*to, TermRef::BlankNode(*from))),
+            Term::BlankNode(to) => Some((to.clone(), Term::BlankNode(from.clone()))),
             _ => None,
         })
         .collect()
@@ -199,7 +199,7 @@ impl Lists {
     }
 
     /// With a mapping from `first` into `second`
-    fn from_first(first: &Graph, second: &Graph, m: &BlankNodeMap<'_, '_>) -> Self {
+    fn from_first(first: &Graph, second: &Graph, m: &BlankNodeMap) -> Self {
         let (only_in_first, only_in_second, first_to_second) = lists(first, second, m);
         Lists {
             only_in_first,
@@ -210,7 +210,7 @@ impl Lists {
     }
 
     /// With a mapping from `second` into `first`
-    fn from_second(first: &Graph, second: &Graph, m: &BlankNodeMap<'_, '_>) -> Self {
+    fn from_second(first: &Graph, second: &Graph, m: &BlankNodeMap) -> Self {
         let (only_in_second, only_in_first, second_to_first) = lists(second, first, m);
         Lists {
             only_in_first,
@@ -221,7 +221,7 @@ impl Lists {
     }
 
     /// With a one-to-one mapping from `first` into `second`: both directions are given
-    fn injective(first: &Graph, second: &Graph, m: &BlankNodeMap<'_, '_>) -> Self {
+    fn injective(first: &Graph, second: &Graph, m: &BlankNodeMap) -> Self {
         let mut lists = Lists::from_first(first, second, m);
         let mut inverse: Vec<(BlankNode, Term)> = lists
             .first_to_second
@@ -240,42 +240,34 @@ impl Lists {
 /// With a mapping `m` from `source` into `target`: the triples of `source` it
 /// does not map to a triple of `target`, the triples of `target` no matched
 /// triple is mapped to, and the part of `m` used by the matched triples, all sorted.
-fn lists(
-    source: &Graph,
-    target: &Graph,
-    m: &BlankNodeMap<'_, '_>,
-) -> (Vec<Triple>, Vec<Triple>, Vec<(BlankNode, Term)>) {
+fn lists(source: &Graph, target: &Graph, m: &BlankNodeMap) -> (Vec<Triple>, Vec<Triple>, Vec<(BlankNode, Term)>) {
     let mut only_in_source = Vec::new();
     let mut images = HashSet::new();
     let mut used = HashSet::new();
     for t in source.iter() {
-        match image(t, m).filter(|i| target.contains(i)) {
+        match image(t.as_ref(), m).filter(|i| target.contains(i)) {
             Some(i) => {
                 images.insert(i);
                 let mut bnodes = Vec::new();
-                blank_nodes(t, &mut bnodes);
-                used.extend(bnodes);
+                blank_nodes(t.as_ref(), &mut bnodes);
+                used.extend(bnodes.into_iter().map(BlankNodeRef::into_owned));
             },
-            None => only_in_source.push(t.into_owned()),
+            None => only_in_source.push(t),
         }
     }
-    let mut only_in_target: Vec<Triple> = target
-        .iter()
-        .map(TripleRef::into_owned)
-        .filter(|t| !images.contains(t))
-        .collect();
+    let mut only_in_target: Vec<Triple> = target.iter().filter(|t| !images.contains(t)).collect();
     only_in_source.sort_by_cached_key(ToString::to_string);
     only_in_target.sort_by_cached_key(ToString::to_string);
-    let mut pairs: Vec<(BlankNode, Term)> = used.into_iter().map(|b| (b.into_owned(), m[&b].into_owned())).collect();
+    let mut pairs: Vec<(BlankNode, Term)> = used.into_iter().map(|b| (b.clone(), m[&b].clone())).collect();
     pairs.sort_by_cached_key(|(b, _)| b.to_string());
     (only_in_source, only_in_target, pairs)
 }
 
 /// The image of `t` under `m`, if every blank node of `t` is mapped (to a
 /// term that is valid where the blank node is).
-fn image(t: TripleRef<'_>, m: &BlankNodeMap<'_, '_>) -> Option<Triple> {
+fn image(t: TripleRef<'_>, m: &BlankNodeMap) -> Option<Triple> {
     let subject: NamedOrBlankNode = match t.subject {
-        NamedOrBlankNodeRef::BlankNode(b) => match m.get(&b)? {
+        NamedOrBlankNodeRef::BlankNode(b) => match m.get(&b.into_owned())?.as_ref() {
             TermRef::NamedNode(n) => n.into_owned().into(),
             TermRef::BlankNode(b) => b.into_owned().into(),
             _ => return None,
@@ -283,50 +275,50 @@ fn image(t: TripleRef<'_>, m: &BlankNodeMap<'_, '_>) -> Option<Triple> {
         s => s.into_owned(),
     };
     let object: Term = match t.object {
-        TermRef::BlankNode(b) => m.get(&b)?.into_owned(),
+        TermRef::BlankNode(b) => m.get(&b.into_owned())?.clone(),
         TermRef::Triple(inner) => image(inner.as_ref(), m)?.into(),
         o => o.into_owned(),
     };
     Some(Triple::new(subject, t.predicate.into_owned(), object))
 }
 
-fn matches(t: TripleRef<'_>, m: &BlankNodeMap<'_, '_>, to: &Graph) -> bool {
+fn matches(t: TripleRef<'_>, m: &BlankNodeMap, to: &Graph) -> bool {
     image(t, m).is_some_and(|i| to.contains(&i))
 }
 
 /// The triples of `first` with blank nodes and what they could be mapped to.
-struct Problem<'a, 'b> {
+struct Problem<'b> {
     mode: SubgraphMode,
     second: &'b Graph,
     /// Triples of `first` with blank nodes
-    pending: Vec<TripleRef<'a>>,
+    pending: Vec<Triple>,
     /// Blank nodes of `first`, most used first
-    bnodes: Vec<BlankNodeRef<'a>>,
+    bnodes: Vec<BlankNode>,
     /// Indices in `pending` of the triples of each blank node
-    triples_of: HashMap<BlankNodeRef<'a>, Vec<usize>>,
+    triples_of: HashMap<BlankNode, Vec<usize>>,
 }
 
-impl<'a, 'b> Problem<'a, 'b> {
-    fn new(first: &'a Graph, second: &'b Graph, mode: SubgraphMode) -> Self {
-        let pending: Vec<TripleRef<'a>> = first.iter().filter(|t| !triple_is_ground(*t)).collect();
-        let mut triples_of: HashMap<BlankNodeRef<'a>, Vec<usize>> = HashMap::new();
+impl<'b> Problem<'b> {
+    fn new(first: &Graph, second: &'b Graph, mode: SubgraphMode) -> Self {
+        let pending: Vec<Triple> = first.iter().filter(|t| !triple_is_ground(t.as_ref())).collect();
+        let mut triples_of: HashMap<BlankNode, Vec<usize>> = HashMap::new();
         for (i, t) in pending.iter().enumerate() {
             let mut bnodes = Vec::new();
-            blank_nodes(*t, &mut bnodes);
+            blank_nodes(t.as_ref(), &mut bnodes);
             bnodes.sort_by_key(|b| b.as_str());
             bnodes.dedup();
             for b in bnodes {
-                triples_of.entry(b).or_default().push(i);
+                triples_of.entry(b.into_owned()).or_default().push(i);
             }
         }
-        let mut bnodes: Vec<_> = triples_of.keys().copied().collect();
+        let mut bnodes: Vec<_> = triples_of.keys().cloned().collect();
         bnodes.sort_by(|x, y| {
             triples_of[y]
                 .len()
                 .cmp(&triples_of[x].len())
                 .then_with(|| x.as_str().cmp(y.as_str()))
         });
-        Problem {
+        Self {
             mode,
             second,
             pending,
@@ -334,40 +326,44 @@ impl<'a, 'b> Problem<'a, 'b> {
             triples_of,
         }
     }
-
-    /// The terms of `second` that `b` could be mapped to, the ones that could
-    /// match more of its triples first.
-    fn domain(&self, b: BlankNodeRef<'a>) -> Vec<TermRef<'b>> {
-        let mut counts: HashMap<TermRef<'b>, usize> = HashMap::new();
-        for i in &self.triples_of[&b] {
-            let t = self.pending[*i];
+    /// Candidate images, ordered by how many incident triples they can match.
+    fn domain(&self, b: &BlankNode) -> Vec<Term> {
+        let mut counts: HashMap<Term, usize> = HashMap::new();
+        for i in &self.triples_of[b] {
+            let t = &self.pending[*i];
             let mut seen = HashSet::new();
-            for c in candidate_triples(t, self.second) {
+            for c in candidate_triples(t.as_ref(), self.second) {
                 let mut m = Mapping::new(self.mode);
-                if unify_triple(t, c, &mut m)
-                    && let Some(image) = m.forward.get(&b)
-                    && seen.insert(*image)
+                if unify_triple(t.as_ref(), c.as_ref(), &mut m)
+                    && let Some(image) = m.forward.get(b)
+                    && seen.insert(image.clone())
                 {
-                    *counts.entry(*image).or_default() += 1;
+                    *counts.entry(image.clone()).or_default() += 1;
                 }
             }
         }
-        let mut domain: Vec<(TermRef<'b>, usize, String)> =
-            counts.into_iter().map(|(t, n)| (t, n, t.to_string())).collect();
+        let mut domain: Vec<_> = counts
+            .into_iter()
+            .map(|(t, n)| {
+                let text = t.to_string();
+                (t, n, text)
+            })
+            .collect();
         domain.sort_by(|x, y| y.1.cmp(&x.1).then_with(|| x.2.cmp(&y.2)));
         domain.into_iter().map(|(t, _, _)| t).collect()
     }
-
-    /// Number of triples with blank nodes that `m` matches
-    fn score(&self, m: &BlankNodeMap<'a, 'b>) -> usize {
-        self.pending.iter().filter(|t| matches(**t, m, self.second)).count()
-    }
-
-    /// Matched triples of `b`, given `m`
-    fn gain(&self, b: BlankNodeRef<'a>, m: &BlankNodeMap<'a, 'b>) -> usize {
-        self.triples_of[&b]
+    /// Number of triples with blank nodes matched by the mapping.
+    fn score(&self, m: &BlankNodeMap) -> usize {
+        self.pending
             .iter()
-            .filter(|i| matches(self.pending[**i], m, self.second))
+            .filter(|t| matches(t.as_ref(), m, self.second))
+            .count()
+    }
+    /// Matched triples incident to this blank node.
+    fn gain(&self, b: &BlankNode, m: &BlankNodeMap) -> usize {
+        self.triples_of[b]
+            .iter()
+            .filter(|i| matches(self.pending[**i].as_ref(), m, self.second))
             .count()
     }
 }
@@ -377,18 +373,15 @@ impl<'a, 'b> Problem<'a, 'b> {
 ///
 /// Only called when `first` is not contained in `second` (in `mode`): some
 /// triple is then unmatched by any mapping, which bounds the search.
-fn best_mapping<'a, 'b>(
-    first: &'a Graph,
-    second: &'b Graph,
-    mode: SubgraphMode,
-    limit: usize,
-) -> (BlankNodeMap<'a, 'b>, bool) {
+fn best_mapping<'a, 'b>(first: &'a Graph, second: &'b Graph, mode: SubgraphMode, limit: usize) -> (BlankNodeMap, bool) {
     let problem = Problem::new(first, second, mode);
     if problem.bnodes.is_empty() {
         return (HashMap::new(), true);
     }
     // If every ground triple is in `second`, a triple with blank nodes is unmatched
-    let ground_contained = first.iter().all(|t| !triple_is_ground(t) || second.contains(t));
+    let ground_contained = first
+        .iter()
+        .all(|t| !triple_is_ground(t.as_ref()) || second.contains(&t));
     let upper_bound = problem.pending.len() - usize::from(ground_contained);
     let heuristic = heuristic_mapping(&problem, first);
     let heuristic_score = problem.score(&heuristic);
@@ -413,27 +406,28 @@ const REFINEMENT_ROUNDS: usize = 3;
 /// A colour for each blank node of `graph` that summarizes its
 /// neighbourhood: blank nodes of two graphs with the same colour look the same
 /// up to `REFINEMENT_ROUNDS` triples away.
-fn colours(graph: &Graph) -> HashMap<BlankNodeRef<'_>, u64> {
-    let mut triples_of: HashMap<BlankNodeRef<'_>, Vec<TripleRef<'_>>> = HashMap::new();
+fn colours(graph: &Graph) -> HashMap<BlankNode, u64> {
+    let mut triples_of: HashMap<BlankNode, Vec<Triple>> = HashMap::new();
     for t in graph.iter() {
         let mut bnodes = Vec::new();
-        blank_nodes(t, &mut bnodes);
+        blank_nodes(t.as_ref(), &mut bnodes);
         bnodes.sort_by_key(|b| b.as_str());
         bnodes.dedup();
         for b in bnodes {
-            triples_of.entry(b).or_default().push(t);
+            triples_of.entry(b.into_owned()).or_default().push(t.clone());
         }
     }
-    let mut colours: HashMap<BlankNodeRef<'_>, u64> = triples_of.keys().map(|b| (*b, 0)).collect();
+    let mut colours: HashMap<BlankNode, u64> = triples_of.keys().map(|b| (b.clone(), 0)).collect();
     for _ in 0..=REFINEMENT_ROUNDS {
         colours = triples_of
             .iter()
             .map(|(b, ts)| {
-                let mut signatures: Vec<String> = ts.iter().map(|t| signature(*t, *b, &colours)).collect();
+                let mut signatures: Vec<String> =
+                    ts.iter().map(|t| signature(t.as_ref(), b.as_ref(), &colours)).collect();
                 signatures.sort();
                 let mut hasher = DefaultHasher::new();
                 signatures.hash(&mut hasher);
-                (*b, hasher.finish())
+                (b.clone(), hasher.finish())
             })
             .collect();
     }
@@ -441,15 +435,15 @@ fn colours(graph: &Graph) -> HashMap<BlankNodeRef<'_>, u64> {
 }
 
 /// `t` written with `b` as `@` and the other blank nodes as their colour.
-fn signature(t: TripleRef<'_>, b: BlankNodeRef<'_>, colours: &HashMap<BlankNodeRef<'_>, u64>) -> String {
-    fn node(n: BlankNodeRef<'_>, b: BlankNodeRef<'_>, colours: &HashMap<BlankNodeRef<'_>, u64>) -> String {
+fn signature(t: TripleRef<'_>, b: BlankNodeRef<'_>, colours: &HashMap<BlankNode, u64>) -> String {
+    fn node(n: BlankNodeRef<'_>, b: BlankNodeRef<'_>, colours: &HashMap<BlankNode, u64>) -> String {
         if n == b {
             "@".to_string()
         } else {
-            format!("#{}", colours[&n])
+            format!("#{}", colours[&n.into_owned()])
         }
     }
-    fn term(o: TermRef<'_>, b: BlankNodeRef<'_>, colours: &HashMap<BlankNodeRef<'_>, u64>) -> String {
+    fn term(o: TermRef<'_>, b: BlankNodeRef<'_>, colours: &HashMap<BlankNode, u64>) -> String {
         match o {
             TermRef::BlankNode(n) => node(n, b, colours),
             TermRef::Triple(inner) => format!("<<( {} )>>", signature(inner.as_ref(), b, colours)),
@@ -463,17 +457,16 @@ fn signature(t: TripleRef<'_>, b: BlankNodeRef<'_>, colours: &HashMap<BlankNodeR
     format!("{subject} {} {}", t.predicate, term(t.object, b, colours))
 }
 
-fn heuristic_mapping<'a, 'b>(problem: &Problem<'a, 'b>, first: &'a Graph) -> BlankNodeMap<'a, 'b> {
+fn heuristic_mapping(problem: &Problem<'_>, first: &Graph) -> BlankNodeMap {
     let first_colours = colours(first);
     let second_colours = colours(problem.second);
-    let mut by_colour: HashMap<u64, Vec<BlankNodeRef<'b>>> = HashMap::new();
+    let mut by_colour: HashMap<u64, Vec<BlankNode>> = HashMap::new();
     for (b, c) in &second_colours {
-        by_colour.entry(*c).or_default().push(*b);
+        by_colour.entry(*c).or_default().push(b.clone());
     }
     for group in by_colour.values_mut() {
-        group.sort_by_key(|b| b.as_str());
+        group.sort_by(|a, b| a.as_str().cmp(b.as_str()));
     }
-
     // 1. Blank nodes with the same colour
     let mut mapping = Mapping::new(problem.mode);
     for b in &problem.bnodes {
@@ -482,44 +475,43 @@ fn heuristic_mapping<'a, 'b>(problem: &Problem<'a, 'b>, first: &'a Graph) -> Bla
         };
         for candidate in group {
             let mark = mapping.trail.len();
-            if mapping.bind(*b, TermRef::BlankNode(*candidate)) {
+            if mapping.bind(b.as_ref(), TermRef::BlankNode(candidate.as_ref())) {
                 break;
             }
             mapping.undo_to(mark);
         }
     }
-    // Drop the pairs that match nothing: they would only block better ones
+    // Drop pairs that match nothing so they do not block better candidates.
     let useful: Vec<_> = problem
         .bnodes
         .iter()
-        .filter(|b| mapping.forward.contains_key(*b) && problem.gain(**b, &mapping.forward) > 0)
-        .map(|b| (*b, mapping.forward[b]))
+        .filter(|b| mapping.forward.contains_key(*b) && problem.gain(b, &mapping.forward) > 0)
+        .map(|b| (b.clone(), mapping.forward[b].clone()))
         .collect();
     let mut mapping = Mapping::new(problem.mode);
     for (b, image) in useful {
-        mapping.bind(b, image);
+        mapping.bind(b.as_ref(), image.as_ref());
     }
-
-    // 2. Greedily, the image that matches the most triples, until nothing changes
+    // 2. Greedily choose images matching the most triples until stable.
     loop {
         let mut changed = false;
         for b in &problem.bnodes {
             if mapping.forward.contains_key(b) {
                 continue;
             }
-            let mut best: Option<(usize, TermRef<'b>)> = None;
-            for candidate in &problem.domain(*b) {
+            let mut best: Option<(usize, Term)> = None;
+            for candidate in problem.domain(b) {
                 let mark = mapping.trail.len();
-                if mapping.bind(*b, *candidate) {
-                    let gain = problem.gain(*b, &mapping.forward);
-                    if gain > 0 && best.is_none_or(|(g, _)| gain > g) {
-                        best = Some((gain, *candidate));
+                if mapping.bind(b.as_ref(), candidate.as_ref()) {
+                    let gain = problem.gain(b, &mapping.forward);
+                    if gain > 0 && best.as_ref().is_none_or(|(g, _)| gain > *g) {
+                        best = Some((gain, candidate));
                     }
                 }
                 mapping.undo_to(mark);
             }
             if let Some((_, image)) = best {
-                mapping.bind(*b, image);
+                mapping.bind(b.as_ref(), image.as_ref());
                 changed = true;
             }
         }
@@ -534,16 +526,16 @@ fn heuristic_mapping<'a, 'b>(problem: &Problem<'a, 'b>, first: &'a Graph) -> Bla
 // Exact search: branch and bound over the images of each blank node
 // ---------------------------------------------------------------------------
 
-struct ExactSearch<'p, 'a, 'b> {
-    problem: &'p Problem<'a, 'b>,
+struct ExactSearch<'p, 'b> {
+    problem: &'p Problem<'b>,
     /// Possible images of each blank node, in search order
-    domains: Vec<Vec<TermRef<'b>>>,
+    domains: Vec<Vec<Term>>,
     /// Indices in `pending` of the triples whose last blank node (in search order) is each one
     decided_at: Vec<Vec<usize>>,
     /// Number of triples decided at each index or later
     remaining: Vec<usize>,
-    mapping: Mapping<'a, 'b>,
-    best: BlankNodeMap<'a, 'b>,
+    mapping: Mapping,
+    best: BlankNodeMap,
     best_score: usize,
     /// The most triples a mapping can match: the search stops when reached
     upper_bound: usize,
@@ -551,23 +543,17 @@ struct ExactSearch<'p, 'a, 'b> {
     limit: usize,
 }
 
-impl<'p, 'a, 'b> ExactSearch<'p, 'a, 'b> {
-    fn new(
-        problem: &'p Problem<'a, 'b>,
-        best: BlankNodeMap<'a, 'b>,
-        best_score: usize,
-        upper_bound: usize,
-        limit: usize,
-    ) -> Self {
-        let position: HashMap<BlankNodeRef<'a>, usize> =
-            problem.bnodes.iter().enumerate().map(|(i, b)| (*b, i)).collect();
+impl<'p, 'b> ExactSearch<'p, 'b> {
+    fn new(problem: &'p Problem<'b>, best: BlankNodeMap, best_score: usize, upper_bound: usize, limit: usize) -> Self {
+        let position: HashMap<BlankNode, usize> =
+            problem.bnodes.iter().enumerate().map(|(i, b)| (b.clone(), i)).collect();
         let mut decided_at = vec![Vec::new(); problem.bnodes.len()];
         for (i, t) in problem.pending.iter().enumerate() {
             let mut bnodes = Vec::new();
-            blank_nodes(*t, &mut bnodes);
+            blank_nodes(t.as_ref(), &mut bnodes);
             let last = bnodes
                 .iter()
-                .map(|b| position[b])
+                .map(|b| position[&b.into_owned()])
                 .max()
                 .expect("pending triples have blank nodes");
             decided_at[last].push(i);
@@ -578,7 +564,7 @@ impl<'p, 'a, 'b> ExactSearch<'p, 'a, 'b> {
         }
         ExactSearch {
             problem,
-            domains: problem.bnodes.iter().map(|b| problem.domain(*b)).collect(),
+            domains: problem.bnodes.iter().map(|b| problem.domain(b)).collect(),
             decided_at,
             remaining,
             mapping: Mapping::new(problem.mode),
@@ -613,14 +599,20 @@ impl<'p, 'a, 'b> ExactSearch<'p, 'a, 'b> {
             self.best = self.mapping.forward.clone();
             return true;
         }
-        let b = self.problem.bnodes[i];
-        let images: Vec<Option<TermRef<'b>>> = self.domains[i].iter().copied().map(Some).chain([None]).collect();
+        let b = self.problem.bnodes[i].clone();
+        let images: Vec<Option<Term>> = self.domains[i].iter().cloned().map(Some).chain([None]).collect();
         for image in images {
             let mark = self.mapping.trail.len();
-            if image.is_none_or(|image| self.mapping.bind(b, image)) {
+            if image.is_none_or(|image| self.mapping.bind(b.as_ref(), image.as_ref())) {
                 let gained = self.decided_at[i]
                     .iter()
-                    .filter(|t| matches(self.problem.pending[**t], &self.mapping.forward, self.problem.second))
+                    .filter(|t| {
+                        matches(
+                            self.problem.pending[**t].as_ref(),
+                            &self.mapping.forward,
+                            self.problem.second,
+                        )
+                    })
                     .count();
                 let finished = self.visit(i + 1, matched + gained);
                 self.mapping.undo_to(mark);

@@ -1,4 +1,4 @@
-use oxrdf::{GraphNameRef, Triple};
+use oxrdf::Triple;
 use oxttl::nquads::LowLevelNQuadsSerializer;
 use oxttl::ntriples::LowLevelNTriplesSerializer;
 use oxttl::trig::LowLevelTriGSerializer;
@@ -100,10 +100,10 @@ impl<W> WriterSink<W> {
 fn declare_base<S: Clone>(
     serializer: S,
     base: &IriS,
-    add: impl FnOnce(S, String) -> Result<S, oxrdf::IriParseError>,
+    add: impl FnOnce(S, &str) -> Result<S, oxrdf::IriParseError>,
 ) -> S {
     let fallback = serializer.clone();
-    add(serializer, base.as_str().to_string()).unwrap_or_else(|error| {
+    add(serializer, base.as_str()).unwrap_or_else(|error| {
         tracing::warn!(%base, %error, "base IRI left out of the serialized output");
         fallback
     })
@@ -114,10 +114,10 @@ fn declare_prefix<S: Clone>(
     serializer: S,
     alias: &str,
     iri: &IriS,
-    add: impl FnOnce(S, String, String) -> Result<S, oxrdf::IriParseError>,
+    add: impl FnOnce(S, &str, &str) -> Result<S, oxrdf::IriParseError>,
 ) -> S {
     let fallback = serializer.clone();
-    add(serializer, alias.to_string(), iri.as_str().to_string()).unwrap_or_else(|error| {
+    add(serializer, alias, iri.as_str()).unwrap_or_else(|error| {
         tracing::warn!(alias, %iri, %error, "prefix left out of the serialized output");
         fallback
     })
@@ -224,10 +224,10 @@ impl Serializer {
             Self::NTriples(serializer) => serializer.serialize_triple(triple, writer),
             Self::Turtle(serializer) => serializer.serialize_triple(triple, writer),
             Self::NQuads(serializer) => {
-                serializer.serialize_quad(triple.as_ref().in_graph(GraphNameRef::DefaultGraph), writer)
+                serializer.serialize_quad(&triple.clone().in_graph(oxrdf::GraphName::DefaultGraph), writer)
             },
             Self::TriG(serializer) => {
-                serializer.serialize_quad(triple.as_ref().in_graph(GraphNameRef::DefaultGraph), writer)
+                serializer.serialize_quad(&triple.clone().in_graph(oxrdf::GraphName::DefaultGraph), writer)
             },
         }
     }

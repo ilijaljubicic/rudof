@@ -182,7 +182,7 @@ fn first_step(path: &SHACLPath, forwards: &mut Vec<OxNamedNode>, backwards: &mut
 /// Fetches the `pred` values of `nodes`.
 fn outgoing(store: &CachedRdfData, nodes: &[OxTerm], pred: &rudof_iri::IriS) -> Result<(), ValidationError> {
     store
-        .prefetch_outgoing(nodes, &[OxNamedNode::new_unchecked(pred.as_str())])
+        .prefetch_outgoing(nodes, &[pred.named_node().clone()])
         .map_err(ValidationError::new_graph_error::<CachedRdfData>)
 }
 
